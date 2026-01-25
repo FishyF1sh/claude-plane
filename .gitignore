@@ -5,7 +5,7 @@ node_modules/
 dist/
 
 # Config files with secrets
-watcher.config.json
+plane.config.json
 
 # Environment files
 .env

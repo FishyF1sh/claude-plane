@@ -360,13 +360,13 @@ class PlaneWatcher {
 }
 
 function loadConfig(): WatcherConfig {
-  const configPath = process.env.WATCHER_CONFIG ||
+  const configPath = process.env.PLANE_CONFIG ||
     process.argv.find((arg, i) => process.argv[i - 1] === "--config") ||
-    "./watcher.config.json";
+    "./plane.config.json";
 
   if (!existsSync(configPath)) {
     console.error(`Config file not found: ${configPath}`);
-    console.error("\nCreate a watcher.config.json with:");
+    console.error("\nCreate a plane.config.json with:");
     console.error(`{
   "plane": {
     "baseUrl": "https://your-plane-instance.com",

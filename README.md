@@ -6,6 +6,7 @@ MCP server and automation watcher for [Plane](https://plane.so) project manageme
 - MCP server providing 40+ tools for Claude to interact with Plane
 - Watcher that automatically triggers Claude when issues are labeled or updated
 - Self-hosted Plane support
+- Single config file for both MCP and watcher
 
 ## Installation
 
@@ -16,17 +17,38 @@ npm install
 npm run build
 ```
 
-## MCP Server Setup
+## Quick Start
 
-The MCP server allows Claude Code to read and modify Plane issues, projects, cycles, modules, and more.
+### 1. Create config file
 
-### 1. Get your Plane API key
+In your project directory, create `plane.config.json`:
 
-In Plane, go to **Profile Settings → API Tokens** and create a new token.
+```json
+{
+  "plane": {
+    "baseUrl": "https://your-plane-instance.com",
+    "apiKey": "plane_api_your-api-key",
+    "workspace": "your-workspace",
+    "project": "your-project"
+  },
+  "watch": {
+    "pollIntervalSeconds": 30,
+    "triggerLabel": "claude",
+    "triggers": {
+      "onLabelAdded": true,
+      "onReopened": true,
+      "onNewComment": true
+    }
+  },
+  "claude": {
+    "prompt": "/fix-issue {identifiers}"
+  }
+}
+```
 
 ### 2. Configure Claude Code
 
-Add to your project's MCP configuration in `~/.claude.json`:
+Add to `~/.claude.json`:
 
 ```json
 {
@@ -36,11 +58,9 @@ Add to your project's MCP configuration in `~/.claude.json`:
         "plane": {
           "type": "stdio",
           "command": "node",
-          "args": ["/path/to/ClaudePlane/dist/index.js"],
+          "args": ["/path/to/claude-plane/dist/index.js"],
           "env": {
-            "PLANE_API_KEY": "plane_api_your_key_here",
-            "PLANE_BASE_URL": "https://your-plane-instance.com",
-            "PLANE_WORKSPACE_SLUG": "your-workspace"
+            "PLANE_CONFIG": "/path/to/your/project/plane.config.json"
           }
         }
       }
@@ -49,15 +69,82 @@ Add to your project's MCP configuration in `~/.claude.json`:
 }
 ```
 
-### Environment Variables
+### 3. Run the watcher (optional)
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PLANE_API_KEY` | Yes | Your Plane API token |
-| `PLANE_BASE_URL` | Yes | Plane instance URL (e.g., `https://app.plane.so` or self-hosted) |
-| `PLANE_WORKSPACE_SLUG` | No | Default workspace (can be overridden per-tool call) |
+```bash
+cd /path/to/your/project
+node /path/to/claude-plane/dist/watcher.js
+```
 
-### Available Tools
+That's it! Claude can now interact with Plane, and the watcher will auto-trigger Claude on labeled issues.
+
+---
+
+## Configuration Reference
+
+### plane.config.json
+
+```json
+{
+  "plane": {
+    "baseUrl": "https://your-plane-instance.com",
+    "apiKey": "plane_api_your-api-key",
+    "workspace": "your-workspace",
+    "project": "your-project"
+  },
+  "watch": {
+    "pollIntervalSeconds": 30,
+    "triggerLabel": "claude",
+    "triggers": {
+      "onLabelAdded": true,
+      "onReopened": true,
+      "onNewComment": true
+    }
+  },
+  "claude": {
+    "prompt": "/fix-issue {identifiers}"
+  }
+}
+```
+
+| Section | Field | Description |
+|---------|-------|-------------|
+| `plane` | `baseUrl` | Plane instance URL |
+| `plane` | `apiKey` | API token from Plane settings |
+| `plane` | `workspace` | Workspace slug (from URL) |
+| `plane` | `project` | Project identifier (e.g., "PROJ") - only needed for watcher |
+| `watch` | `pollIntervalSeconds` | How often to check for updates |
+| `watch` | `triggerLabel` | Label that triggers Claude |
+| `watch` | `triggers` | Which events trigger Claude (see below) |
+| `claude` | `prompt` | Prompt template with placeholders |
+
+### Trigger Conditions
+
+| Trigger | Default | Description |
+|---------|---------|-------------|
+| `onLabelAdded` | `true` | When an item gets the trigger label |
+| `onReopened` | `true` | When an item is reopened (moved from Done) |
+| `onNewComment` | `true` | When a comment is added to a labeled item |
+
+### Prompt Placeholders
+
+| Placeholder | Description | Example |
+|-------------|-------------|---------|
+| `{identifiers}` | Space-separated issue IDs | `PROJ-1 PROJ-2` |
+| `{ids}` | Space-separated UUIDs | `uuid1 uuid2` |
+| `{urls}` | Newline-separated URLs | |
+| `{count}` | Number of triggered items | `3` |
+| `{identifier}` | First issue ID | `PROJ-1` |
+| `{id}` | First issue UUID | |
+| `{title}` | First issue title | |
+| `{description}` | First issue description | |
+| `{url}` | First issue URL | |
+| `{project}` | Project identifier | `PROJ` |
+| `{sequence_id}` | First issue number | `1` |
+
+---
+
+## Available MCP Tools
 
 **Projects:** `plane_list_projects`, `plane_get_project`, `plane_create_project`, `plane_update_project`, `plane_delete_project`
 
@@ -83,113 +170,17 @@ Add to your project's MCP configuration in `~/.claude.json`:
 
 **User:** `plane_get_current_user`
 
-## Watcher Setup
-
-The watcher monitors Plane for issues with a specific label and automatically triggers Claude to work on them.
-
-### 1. Create a trigger label
-
-In your Plane project, create a label (e.g., "claude") that will trigger automation.
-
-### 2. Create a config file
-
-In your project directory, create `watcher.config.json`:
-
-```json
-{
-  "plane": {
-    "baseUrl": "https://your-plane-instance.com",
-    "apiKey": "plane_api_your-api-key",
-    "workspace": "your-workspace",
-    "project": "your-project"
-  },
-  "watch": {
-    "pollIntervalSeconds": 30,
-    "triggerLabel": "claude",
-    "triggers": {
-      "onLabelAdded": true,
-      "onReopened": true,
-      "onNewComment": true
-    }
-  },
-  "claude": {
-    "prompt": "/fix-issue {identifiers}"
-  }
-}
-```
-
-### 3. Run the watcher
-
-```bash
-cd /path/to/your/project
-node /path/to/ClaudePlane/dist/watcher.js
-```
-
-Or with a custom config path:
-
-```bash
-node /path/to/ClaudePlane/dist/watcher.js --config ./my-config.json
-```
-
-### Trigger Conditions
-
-Configure which events trigger Claude in `watch.triggers`:
-
-| Trigger | Default | Description |
-|---------|---------|-------------|
-| `onLabelAdded` | `true` | When an item gets the trigger label |
-| `onReopened` | `true` | When an item is reopened (moved from Done) |
-| `onNewComment` | `true` | When a comment is added to a labeled item |
-
-Example - only trigger on new comments:
-```json
-"triggers": {
-  "onLabelAdded": false,
-  "onReopened": false,
-  "onNewComment": true
-}
-```
-
-### Prompt Placeholders
-
-| Placeholder | Description | Example |
-|-------------|-------------|---------|
-| `{identifiers}` | Space-separated issue IDs | `PROJ-1 PROJ-2` |
-| `{ids}` | Space-separated UUIDs | `uuid1 uuid2` |
-| `{urls}` | Newline-separated URLs | |
-| `{count}` | Number of triggered items | `3` |
-| `{identifier}` | First issue ID | `PROJ-1` |
-| `{id}` | First issue UUID | |
-| `{title}` | First issue title | |
-| `{description}` | First issue description | |
-| `{url}` | First issue URL | |
-| `{project}` | Project identifier | `PROJ` |
-| `{sequence_id}` | First issue number | `1` |
-
-### Example Prompts
-
-```json
-// Fix multiple issues
-"prompt": "/fix-issue {identifiers}"
-
-// Custom prompt with context
-"prompt": "There are {count} issues to fix: {identifiers}\n\nPlease analyze and fix them."
-
-// Review only
-"prompt": "Review issue {identifier}: {title}\n\n{description}"
-```
+---
 
 ## Custom Claude Command
 
-Create `~/.claude/commands/fix-issue.md` to define how Claude should handle issues:
+Create `~/.claude/commands/fix-issue.md` to define how Claude handles issues:
 
 ```markdown
 # Fix Plane Issue
 
-Fix one or more issues from Plane.
-
 ## Arguments
-- Issue identifiers (e.g., `TEST-123` or multiple: `TEST-123 TEST-124`)
+- Issue identifiers (e.g., `PROJ-123` or multiple: `PROJ-123 PROJ-124`)
 
 ## Workflow
 1. Fetch issue details from Plane
@@ -199,17 +190,32 @@ Fix one or more issues from Plane.
 5. Update issue state to Done
 ```
 
+---
+
+## Backwards Compatibility
+
+The MCP server also supports environment variables instead of a config file:
+
+```json
+{
+  "env": {
+    "PLANE_API_KEY": "plane_api_...",
+    "PLANE_BASE_URL": "https://...",
+    "PLANE_WORKSPACE_SLUG": "your-workspace"
+  }
+}
+```
+
+---
+
 ## Development
 
 ```bash
-# Build
-npm run build
-
-# Run MCP server directly
-npm start
-
-# Run watcher in dev mode
-npm run dev:watch
+npm run build        # Build
+npm start            # Run MCP server
+npm run watch        # Run watcher
+npm run dev          # Dev mode (MCP)
+npm run dev:watch    # Dev mode (watcher)
 ```
 
 ## License

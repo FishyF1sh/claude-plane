@@ -11,6 +11,7 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import { readFileSync, existsSync } from "fs";
 import {
   PlaneClient,
   CreateWorkItemInput,
@@ -35,18 +36,54 @@ import {
   UpdateInitiativeInput,
 } from "./plane-client.js";
 
-// Configuration from environment variables
-const PLANE_BASE_URL = process.env.PLANE_BASE_URL || "";
-const PLANE_API_KEY = process.env.PLANE_API_KEY || "";
-const PLANE_WORKSPACE_SLUG = process.env.PLANE_WORKSPACE_SLUG || "";
+// Load configuration from file or environment variables
+interface PlaneConfig {
+  plane: {
+    baseUrl: string;
+    apiKey: string;
+    workspace: string;
+  };
+}
+
+function loadConfig(): { baseUrl: string; apiKey: string; workspace: string } {
+  const configPath = process.env.PLANE_CONFIG;
+
+  // Try loading from config file first
+  if (configPath && existsSync(configPath)) {
+    try {
+      const content = readFileSync(configPath, "utf-8");
+      const config = JSON.parse(content) as PlaneConfig;
+      return {
+        baseUrl: config.plane.baseUrl,
+        apiKey: config.plane.apiKey,
+        workspace: config.plane.workspace || "",
+      };
+    } catch (e) {
+      console.error(`Error reading config file ${configPath}:`, e);
+      process.exit(1);
+    }
+  }
+
+  // Fall back to environment variables
+  return {
+    baseUrl: process.env.PLANE_BASE_URL || "",
+    apiKey: process.env.PLANE_API_KEY || "",
+    workspace: process.env.PLANE_WORKSPACE_SLUG || "",
+  };
+}
+
+const config = loadConfig();
+const PLANE_BASE_URL = config.baseUrl;
+const PLANE_API_KEY = config.apiKey;
+const PLANE_WORKSPACE_SLUG = config.workspace;
 
 if (!PLANE_API_KEY) {
-  console.error("Error: PLANE_API_KEY environment variable is required");
+  console.error("Error: PLANE_API_KEY is required (via PLANE_CONFIG file or PLANE_API_KEY env var)");
   process.exit(1);
 }
 
 if (!PLANE_BASE_URL) {
-  console.error("Error: PLANE_BASE_URL environment variable is required");
+  console.error("Error: PLANE_BASE_URL is required (via PLANE_CONFIG file or PLANE_BASE_URL env var)");
   process.exit(1);
 }
 
