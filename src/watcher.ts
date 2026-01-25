@@ -8,6 +8,15 @@ import { spawn } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { PlaneClient, WorkItem, State } from "./plane-client.js";
 
+interface TriggerConditions {
+  /** Trigger when an item gets the trigger label (default: true) */
+  onLabelAdded?: boolean;
+  /** Trigger when an item with the label is reopened (default: true) */
+  onReopened?: boolean;
+  /** Trigger when a new comment is added to an item with the label (default: true) */
+  onNewComment?: boolean;
+}
+
 interface WatcherConfig {
   plane: {
     baseUrl: string;
@@ -18,6 +27,7 @@ interface WatcherConfig {
   watch: {
     pollIntervalSeconds: number;
     triggerLabel: string;
+    triggers?: TriggerConditions;
   };
   claude: {
     /**
@@ -142,6 +152,12 @@ class PlaneWatcher {
       const tracked = this.trackedItems.get(item.id);
       const itemIdentifier = this.getItemIdentifier(item);
 
+      // Get trigger conditions with defaults
+      const triggers = this.config.watch.triggers || {};
+      const onLabelAdded = triggers.onLabelAdded !== false;
+      const onReopened = triggers.onReopened !== false;
+      const onNewComment = triggers.onNewComment !== false;
+
       if (!tracked) {
         // New item with trigger label
         this.trackedItems.set(item.id, {
@@ -151,7 +167,7 @@ class PlaneWatcher {
           processing: false,
         });
 
-        if (!initialScan) {
+        if (!initialScan && onLabelAdded) {
           console.log(`[Watcher] New item with trigger label: ${itemIdentifier}`);
           triggeredItems.push(item);
         }
@@ -160,12 +176,12 @@ class PlaneWatcher {
         const wasDone = tracked.lastStateId === this.doneStateId;
         const isNotDone = item.state !== this.doneStateId;
 
-        if (wasDone && isNotDone) {
+        if (wasDone && isNotDone && onReopened) {
           console.log(`[Watcher] Item reopened: ${itemIdentifier}`);
           triggeredItems.push(item);
         }
         // Check for new comments
-        else if (commentCount > tracked.lastCommentCount) {
+        else if (commentCount > tracked.lastCommentCount && onNewComment) {
           console.log(`[Watcher] New comment on: ${itemIdentifier} (${commentCount - tracked.lastCommentCount} new)`);
           triggeredItems.push(item);
         }
@@ -356,16 +372,26 @@ function loadConfig(): WatcherConfig {
     "baseUrl": "https://your-plane-instance.com",
     "apiKey": "plane_api_...",
     "workspace": "your-workspace",
-    "project": "YOUR_PROJECT"
+    "project": "your-project"
   },
   "watch": {
     "pollIntervalSeconds": 30,
-    "triggerLabel": "claude"
+    "triggerLabel": "claude",
+    "triggers": {
+      "onLabelAdded": true,
+      "onReopened": true,
+      "onNewComment": true
+    }
   },
   "claude": {
-    "prompt": "/fix-issue {identifier}"
+    "prompt": "/fix-issue {identifiers}"
   }
 }
+
+Trigger conditions (all default to true):
+  onLabelAdded  - when an item gets the trigger label
+  onReopened    - when an item is reopened (moved from Done)
+  onNewComment  - when a comment is added to a labeled item
 
 Available placeholders in prompt:
   Batch (all triggered items):

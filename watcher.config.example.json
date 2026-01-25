@@ -1,13 +1,18 @@
 {
   "plane": {
     "baseUrl": "https://your-plane-instance.com",
-    "apiKey": "plane_api_YOUR_API_KEY",
+    "apiKey": "plane_api_your-api-key",
     "workspace": "your-workspace",
-    "project": "YOUR_PROJECT"
+    "project": "your-project"
   },
   "watch": {
     "pollIntervalSeconds": 30,
-    "triggerLabel": "claude"
+    "triggerLabel": "claude",
+    "triggers": {
+      "onLabelAdded": true,
+      "onReopened": true,
+      "onNewComment": true
+    }
   },
   "claude": {
     "prompt": "/fix-issue {identifiers}"

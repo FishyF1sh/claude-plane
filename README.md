@@ -10,8 +10,8 @@ MCP server and automation watcher for [Plane](https://plane.so) project manageme
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ClaudePlane.git
-cd ClaudePlane
+git clone https://github.com/FishyF1sh/claude-plane.git
+cd claude-plane
 npm install
 npm run build
 ```
@@ -99,13 +99,18 @@ In your project directory, create `watcher.config.json`:
 {
   "plane": {
     "baseUrl": "https://your-plane-instance.com",
-    "apiKey": "plane_api_your_key_here",
+    "apiKey": "plane_api_your-api-key",
     "workspace": "your-workspace",
-    "project": "PROJECT_IDENTIFIER"
+    "project": "your-project"
   },
   "watch": {
     "pollIntervalSeconds": 30,
-    "triggerLabel": "claude"
+    "triggerLabel": "claude",
+    "triggers": {
+      "onLabelAdded": true,
+      "onReopened": true,
+      "onNewComment": true
+    }
   },
   "claude": {
     "prompt": "/fix-issue {identifiers}"
@@ -128,10 +133,22 @@ node /path/to/ClaudePlane/dist/watcher.js --config ./my-config.json
 
 ### Trigger Conditions
 
-The watcher triggers Claude when:
-- A new issue gets the trigger label
-- An issue with the trigger label is reopened (state changed from Done)
-- A new comment is added to an issue with the trigger label
+Configure which events trigger Claude in `watch.triggers`:
+
+| Trigger | Default | Description |
+|---------|---------|-------------|
+| `onLabelAdded` | `true` | When an item gets the trigger label |
+| `onReopened` | `true` | When an item is reopened (moved from Done) |
+| `onNewComment` | `true` | When a comment is added to a labeled item |
+
+Example - only trigger on new comments:
+```json
+"triggers": {
+  "onLabelAdded": false,
+  "onReopened": false,
+  "onNewComment": true
+}
+```
 
 ### Prompt Placeholders
 
