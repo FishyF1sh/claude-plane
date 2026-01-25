@@ -1,0 +1,15 @@
+{
+  "plane": {
+    "baseUrl": "https://your-plane-instance.com",
+    "apiKey": "plane_api_YOUR_API_KEY",
+    "workspace": "your-workspace",
+    "project": "YOUR_PROJECT"
+  },
+  "watch": {
+    "pollIntervalSeconds": 30,
+    "triggerLabel": "claude"
+  },
+  "claude": {
+    "prompt": "/fix-issue {identifiers}"
+  }
+}

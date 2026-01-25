@@ -1,0 +1,42 @@
+{
+  "name": "claude-plane",
+  "version": "1.0.0",
+  "description": "MCP server and automation watcher for Plane project management",
+  "author": "",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "claude",
+    "plane",
+    "project-management",
+    "automation"
+  ],
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "claude-plane": "./dist/index.js",
+    "claude-plane-watcher": "./dist/watcher.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "watch": "node dist/watcher.js",
+    "dev": "tsx src/index.ts",
+    "dev:watch": "tsx src/watcher.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}
