@@ -69,8 +69,17 @@ Add to `~/.claude.json`:
 }
 ```
 
-### 3. Run the watcher (optional)
+### 3. Control the watcher (optional)
 
+The watcher can be controlled in two ways:
+
+**Via MCP tools (recommended):**
+Ask Claude to start/stop the watcher using the built-in tools:
+- `plane_watcher_start` - Start monitoring for labeled issues
+- `plane_watcher_stop` - Stop the watcher
+- `plane_watcher_status` - Check watcher status and logs
+
+**Via command line:**
 ```bash
 cd /path/to/your/project
 node /path/to/claude-plane/dist/watcher.js
@@ -169,6 +178,8 @@ That's it! Claude can now interact with Plane, and the watcher will auto-trigger
 **Attachments:** `plane_list_attachments`, `plane_upload_attachment`, `plane_delete_attachment`
 
 **User:** `plane_get_current_user`
+
+**Watcher:** `plane_watcher_start`, `plane_watcher_stop`, `plane_watcher_status`
 
 ---
 

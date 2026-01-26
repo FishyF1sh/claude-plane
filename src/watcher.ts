@@ -2,13 +2,14 @@
 /**
  * Plane Watcher
  * Monitors Plane for work items with a trigger label and spawns Claude to fix them.
+ * Can be run standalone or controlled via MCP tools.
  */
 
-import { spawn } from "child_process";
+import { spawn, ChildProcess } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { PlaneClient, WorkItem, State } from "./plane-client.js";
 
-interface TriggerConditions {
+export interface TriggerConditions {
   /** Trigger when an item gets the trigger label (default: true) */
   onLabelAdded?: boolean;
   /** Trigger when an item with the label is reopened (default: true) */
@@ -17,7 +18,7 @@ interface TriggerConditions {
   onNewComment?: boolean;
 }
 
-interface WatcherConfig {
+export interface WatcherConfig {
   plane: {
     baseUrl: string;
     apiKey: string;
@@ -44,6 +45,17 @@ interface WatcherConfig {
   };
 }
 
+export interface WatcherStatus {
+  running: boolean;
+  initialized: boolean;
+  project: string | null;
+  triggerLabel: string | null;
+  trackedItemCount: number;
+  pollIntervalSeconds: number;
+  lastPollTime: Date | null;
+  currentlyProcessing: string[];
+}
+
 interface TrackedItem {
   id: string;
   lastCommentCount: number;
@@ -51,7 +63,7 @@ interface TrackedItem {
   processing: boolean;
 }
 
-class PlaneWatcher {
+export class PlaneWatcher {
   private config: WatcherConfig;
   private client: PlaneClient;
   private projectId: string | null = null;
@@ -59,6 +71,11 @@ class PlaneWatcher {
   private doneStateId: string | null = null;
   private inProgressStateId: string | null = null;
   private trackedItems: Map<string, TrackedItem> = new Map();
+  private pollInterval: NodeJS.Timeout | null = null;
+  private running: boolean = false;
+  private initialized: boolean = false;
+  private lastPollTime: Date | null = null;
+  private logCallback: ((message: string) => void) | null = null;
 
   constructor(config: WatcherConfig) {
     this.config = config;
@@ -68,8 +85,22 @@ class PlaneWatcher {
     });
   }
 
+  /** Set a callback for log messages (useful when running via MCP) */
+  setLogCallback(callback: (message: string) => void): void {
+    this.logCallback = callback;
+  }
+
+  private log(message: string): void {
+    const formatted = `[Watcher] ${message}`;
+    if (this.logCallback) {
+      this.logCallback(formatted);
+    } else {
+      console.log(formatted);
+    }
+  }
+
   async initialize(): Promise<void> {
-    console.log(`[Watcher] Initializing for project ${this.config.plane.project}...`);
+    this.log(`Initializing for project ${this.config.plane.project}...`);
 
     // Find project by identifier
     const projects = await this.client.listProjects(this.config.plane.workspace);
@@ -80,7 +111,7 @@ class PlaneWatcher {
       throw new Error(`Project ${this.config.plane.project} not found`);
     }
     this.projectId = project.id;
-    console.log(`[Watcher] Found project: ${project.name} (${project.id})`);
+    this.log(`Found project: ${project.name} (${project.id})`);
 
     // Find trigger label
     const labels = await this.client.listLabels(
@@ -96,7 +127,7 @@ class PlaneWatcher {
       );
     }
     this.triggerLabelId = label.id;
-    console.log(`[Watcher] Found trigger label: ${label.name} (${label.id})`);
+    this.log(`Found trigger label: ${label.name} (${label.id})`);
 
     // Find Done and In Progress states
     const states = await this.client.listStates(
@@ -108,17 +139,18 @@ class PlaneWatcher {
 
     if (doneState) {
       this.doneStateId = doneState.id;
-      console.log(`[Watcher] Found Done state: ${doneState.name}`);
+      this.log(`Found Done state: ${doneState.name}`);
     }
     if (inProgressState) {
       this.inProgressStateId = inProgressState.id;
-      console.log(`[Watcher] Found In Progress state: ${inProgressState.name}`);
+      this.log(`Found In Progress state: ${inProgressState.name}`);
     }
 
     // Initial scan to populate tracked items
     await this.scanItems(true);
 
-    console.log(`[Watcher] Initialized. Tracking ${this.trackedItems.size} items with "${this.config.watch.triggerLabel}" label.`);
+    this.initialized = true;
+    this.log(`Initialized. Tracking ${this.trackedItems.size} items with "${this.config.watch.triggerLabel}" label.`);
   }
 
   private async scanItems(initialScan: boolean = false): Promise<WorkItem[]> {
@@ -135,7 +167,7 @@ class PlaneWatcher {
       if (!item.labels?.includes(this.triggerLabelId!)) {
         // If item lost the label, stop tracking it
         if (this.trackedItems.has(item.id)) {
-          console.log(`[Watcher] Item ${this.getItemIdentifier(item)} lost trigger label, untracking.`);
+          this.log(`Item ${this.getItemIdentifier(item)} lost trigger label, untracking.`);
           this.trackedItems.delete(item.id);
         }
         continue;
@@ -168,7 +200,7 @@ class PlaneWatcher {
         });
 
         if (!initialScan && onLabelAdded) {
-          console.log(`[Watcher] New item with trigger label: ${itemIdentifier}`);
+          this.log(`New item with trigger label: ${itemIdentifier}`);
           triggeredItems.push(item);
         }
       } else if (!tracked.processing) {
@@ -177,12 +209,12 @@ class PlaneWatcher {
         const isNotDone = item.state !== this.doneStateId;
 
         if (wasDone && isNotDone && onReopened) {
-          console.log(`[Watcher] Item reopened: ${itemIdentifier}`);
+          this.log(`Item reopened: ${itemIdentifier}`);
           triggeredItems.push(item);
         }
         // Check for new comments
         else if (commentCount > tracked.lastCommentCount && onNewComment) {
-          console.log(`[Watcher] New comment on: ${itemIdentifier} (${commentCount - tracked.lastCommentCount} new)`);
+          this.log(`New comment on: ${itemIdentifier} (${commentCount - tracked.lastCommentCount} new)`);
           triggeredItems.push(item);
         }
 
@@ -253,7 +285,7 @@ class PlaneWatcher {
     if (items.length === 0) return;
 
     const identifiers = items.map((item) => this.getItemIdentifier(item));
-    console.log(`[Watcher] Processing ${items.length} item(s): ${identifiers.join(", ")}`);
+    this.log(`Processing ${items.length} item(s): ${identifiers.join(", ")}`);
 
     // Mark all as processing
     for (const item of items) {
@@ -271,17 +303,17 @@ class PlaneWatcher {
             item.id,
             { state: this.inProgressStateId }
           );
-          console.log(`[Watcher] Set ${this.getItemIdentifier(item)} to In Progress`);
+          this.log(`Set ${this.getItemIdentifier(item)} to In Progress`);
         }
       }
 
       // Spawn Claude with all items
       const prompt = this.buildPrompt(items);
-      console.log(`[Watcher] Spawning Claude with prompt: ${prompt.substring(0, 100)}${prompt.length > 100 ? "..." : ""}`);
+      this.log(`Spawning Claude with prompt: ${prompt.substring(0, 100)}${prompt.length > 100 ? "..." : ""}`);
 
       await this.spawnClaude(prompt);
 
-      console.log(`[Watcher] Claude finished processing ${identifiers.join(", ")}`);
+      this.log(`Claude finished processing ${identifiers.join(", ")}`);
     } catch (error) {
       console.error(`[Watcher] Error processing items:`, error);
     } finally {
@@ -335,12 +367,25 @@ class PlaneWatcher {
     });
   }
 
+  /** Start the watcher polling loop */
   async start(): Promise<void> {
-    console.log(`[Watcher] Starting poll loop (every ${this.config.watch.pollIntervalSeconds}s)...`);
-    console.log(`[Watcher] Press Ctrl+C to stop.\n`);
+    if (this.running) {
+      this.log("Watcher is already running");
+      return;
+    }
+
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    this.running = true;
+    this.log(`Starting poll loop (every ${this.config.watch.pollIntervalSeconds}s)...`);
 
     const poll = async () => {
+      if (!this.running) return;
+
       try {
+        this.lastPollTime = new Date();
         const triggeredItems = await this.scanItems();
 
         if (triggeredItems.length > 0) {
@@ -355,17 +400,59 @@ class PlaneWatcher {
     await poll();
 
     // Schedule recurring polls
-    setInterval(poll, this.config.watch.pollIntervalSeconds * 1000);
+    this.pollInterval = setInterval(poll, this.config.watch.pollIntervalSeconds * 1000);
+  }
+
+  /** Stop the watcher polling loop */
+  stop(): void {
+    if (!this.running) {
+      this.log("Watcher is not running");
+      return;
+    }
+
+    this.running = false;
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+    this.log("Watcher stopped");
+  }
+
+  /** Get current watcher status */
+  getStatus(): WatcherStatus {
+    const currentlyProcessing: string[] = [];
+    for (const [id, tracked] of this.trackedItems) {
+      if (tracked.processing) {
+        currentlyProcessing.push(id);
+      }
+    }
+
+    return {
+      running: this.running,
+      initialized: this.initialized,
+      project: this.config.plane.project,
+      triggerLabel: this.config.watch.triggerLabel,
+      trackedItemCount: this.trackedItems.size,
+      pollIntervalSeconds: this.config.watch.pollIntervalSeconds,
+      lastPollTime: this.lastPollTime,
+      currentlyProcessing,
+    };
+  }
+
+  /** Check if watcher is running */
+  isRunning(): boolean {
+    return this.running;
   }
 }
 
-function loadConfig(): WatcherConfig {
-  const configPath = process.env.PLANE_CONFIG ||
+export function loadConfig(configPath?: string): WatcherConfig {
+  const path = configPath ||
+    process.env.PLANE_CONFIG ||
     process.argv.find((arg, i) => process.argv[i - 1] === "--config") ||
     "./plane.config.json";
 
-  if (!existsSync(configPath)) {
-    console.error(`Config file not found: ${configPath}`);
+  if (!existsSync(path)) {
+    console.error(`Config file not found: ${path}`);
     console.error("\nCreate a plane.config.json with:");
     console.error(`{
   "plane": {
@@ -408,26 +495,45 @@ Available placeholders in prompt:
     {url}         - link to issue in Plane UI
     {project}     - project identifier
     {sequence_id} - just the number`);
-    process.exit(1);
+    throw new Error(`Config file not found: ${path}`);
   }
 
-  const content = readFileSync(configPath, "utf-8");
+  const content = readFileSync(path, "utf-8");
   return JSON.parse(content) as WatcherConfig;
 }
 
-async function main() {
-  console.log("=================================");
-  console.log("  Plane Watcher for Claude Code");
-  console.log("=================================\n");
+// Only run main when executed directly (not imported)
+const isMainModule = import.meta.url === `file://${process.argv[1]}`;
 
-  const config = loadConfig();
-  const watcher = new PlaneWatcher(config);
+if (isMainModule) {
+  async function main() {
+    console.log("=================================");
+    console.log("  Plane Watcher for Claude Code");
+    console.log("=================================\n");
 
-  await watcher.initialize();
-  await watcher.start();
+    const config = loadConfig();
+    const watcher = new PlaneWatcher(config);
+
+    // Handle graceful shutdown
+    process.on("SIGINT", () => {
+      console.log("\nReceived SIGINT, stopping watcher...");
+      watcher.stop();
+      process.exit(0);
+    });
+
+    process.on("SIGTERM", () => {
+      console.log("\nReceived SIGTERM, stopping watcher...");
+      watcher.stop();
+      process.exit(0);
+    });
+
+    await watcher.initialize();
+    console.log("[Watcher] Press Ctrl+C to stop.\n");
+    await watcher.start();
+  }
+
+  main().catch((error) => {
+    console.error("Fatal error:", error);
+    process.exit(1);
+  });
 }
-
-main().catch((error) => {
-  console.error("Fatal error:", error);
-  process.exit(1);
-});

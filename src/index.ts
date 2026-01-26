@@ -35,6 +35,7 @@ import {
   CreateInitiativeInput,
   UpdateInitiativeInput,
 } from "./plane-client.js";
+import { PlaneWatcher, WatcherConfig, loadConfig as loadWatcherConfig } from "./watcher.js";
 
 // Load configuration from file or environment variables
 interface PlaneConfig {
@@ -42,10 +43,23 @@ interface PlaneConfig {
     baseUrl: string;
     apiKey: string;
     workspace: string;
+    project?: string;
+  };
+  watch?: {
+    pollIntervalSeconds: number;
+    triggerLabel: string;
+    triggers?: {
+      onLabelAdded?: boolean;
+      onReopened?: boolean;
+      onNewComment?: boolean;
+    };
+  };
+  claude?: {
+    prompt: string;
   };
 }
 
-function loadConfig(): { baseUrl: string; apiKey: string; workspace: string } {
+function loadConfig(): { baseUrl: string; apiKey: string; workspace: string; fullConfig: PlaneConfig | null } {
   const configPath = process.env.PLANE_CONFIG;
 
   // Try loading from config file first
@@ -57,6 +71,7 @@ function loadConfig(): { baseUrl: string; apiKey: string; workspace: string } {
         baseUrl: config.plane.baseUrl,
         apiKey: config.plane.apiKey,
         workspace: config.plane.workspace || "",
+        fullConfig: config,
       };
     } catch (e) {
       console.error(`Error reading config file ${configPath}:`, e);
@@ -69,6 +84,7 @@ function loadConfig(): { baseUrl: string; apiKey: string; workspace: string } {
     baseUrl: process.env.PLANE_BASE_URL || "",
     apiKey: process.env.PLANE_API_KEY || "",
     workspace: process.env.PLANE_WORKSPACE_SLUG || "",
+    fullConfig: null,
   };
 }
 
@@ -76,6 +92,11 @@ const config = loadConfig();
 const PLANE_BASE_URL = config.baseUrl;
 const PLANE_API_KEY = config.apiKey;
 const PLANE_WORKSPACE_SLUG = config.workspace;
+const FULL_CONFIG = config.fullConfig;
+
+// Watcher instance (singleton, managed via MCP tools)
+let watcherInstance: PlaneWatcher | null = null;
+const watcherLogs: string[] = [];
 
 if (!PLANE_API_KEY) {
   console.error("Error: PLANE_API_KEY is required (via PLANE_CONFIG file or PLANE_API_KEY env var)");
@@ -1362,6 +1383,40 @@ const tools: Tool[] = [
       required: ["project_id", "work_item_id", "attachment_id"],
     },
   },
+
+  // Watcher tools
+  {
+    name: "plane_watcher_start",
+    description: "Start the Plane watcher that monitors for work items with a trigger label and spawns Claude to handle them. Requires a plane.config.json with watch and claude sections configured.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "plane_watcher_stop",
+    description: "Stop the running Plane watcher",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "plane_watcher_status",
+    description: "Get the current status of the Plane watcher, including whether it's running, tracked items, and recent logs",
+    inputSchema: {
+      type: "object",
+      properties: {
+        include_logs: {
+          type: "boolean",
+          description: "Include recent log messages in the response (default: true)",
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 // Tool handler
@@ -1822,6 +1877,94 @@ async function handleToolCall(
         args.attachment_id as string
       );
       return { success: true };
+
+    // Watcher handlers
+    case "plane_watcher_start": {
+      if (watcherInstance?.isRunning()) {
+        return {
+          success: false,
+          message: "Watcher is already running",
+          status: watcherInstance.getStatus(),
+        };
+      }
+
+      if (!FULL_CONFIG?.watch || !FULL_CONFIG?.claude || !FULL_CONFIG?.plane?.project) {
+        return {
+          success: false,
+          message: "Watcher configuration not found. Ensure plane.config.json has 'watch', 'claude', and 'plane.project' sections configured.",
+        };
+      }
+
+      // Create watcher config from full config
+      const watcherConfig: WatcherConfig = {
+        plane: {
+          baseUrl: FULL_CONFIG.plane.baseUrl,
+          apiKey: FULL_CONFIG.plane.apiKey,
+          workspace: FULL_CONFIG.plane.workspace,
+          project: FULL_CONFIG.plane.project,
+        },
+        watch: FULL_CONFIG.watch,
+        claude: FULL_CONFIG.claude,
+      };
+
+      watcherInstance = new PlaneWatcher(watcherConfig);
+
+      // Capture logs
+      watcherLogs.length = 0;
+      watcherInstance.setLogCallback((msg) => {
+        watcherLogs.push(`${new Date().toISOString()} ${msg}`);
+        // Keep only last 100 logs
+        if (watcherLogs.length > 100) {
+          watcherLogs.shift();
+        }
+        console.error(msg); // Also log to stderr for debugging
+      });
+
+      await watcherInstance.start();
+
+      return {
+        success: true,
+        message: "Watcher started successfully",
+        status: watcherInstance.getStatus(),
+      };
+    }
+
+    case "plane_watcher_stop": {
+      if (!watcherInstance?.isRunning()) {
+        return {
+          success: false,
+          message: "Watcher is not running",
+        };
+      }
+
+      watcherInstance.stop();
+      const status = watcherInstance.getStatus();
+
+      return {
+        success: true,
+        message: "Watcher stopped",
+        status,
+      };
+    }
+
+    case "plane_watcher_status": {
+      const includeLogs = args.include_logs !== false;
+
+      if (!watcherInstance) {
+        return {
+          running: false,
+          initialized: false,
+          message: "Watcher has not been started",
+          logs: includeLogs ? watcherLogs : undefined,
+        };
+      }
+
+      const status = watcherInstance.getStatus();
+      return {
+        ...status,
+        logs: includeLogs ? watcherLogs.slice(-50) : undefined,
+      };
+    }
 
     default:
       throw new Error(`Unknown tool: ${name}`);
