@@ -33,7 +33,7 @@ export interface WatcherConfig {
   claude: {
     /**
      * Prompt template with placeholders:
-     * {identifier} - e.g., SPICYMOCKS-1
+     * {identifier} - e.g., PROJ-1
      * {id} - UUID of work item
      * {title} - issue title
      * {description} - issue description (HTML tags stripped)
@@ -482,13 +482,13 @@ Trigger conditions (all default to true):
 
 Available placeholders in prompt:
   Batch (all triggered items):
-    {identifiers} - space-separated, e.g., "SPICYMOCKS-1 SPICYMOCKS-2"
+    {identifiers} - space-separated, e.g., "PROJ-1 PROJ-2"
     {ids}         - space-separated UUIDs
     {urls}        - newline-separated URLs
     {count}       - number of items
 
   Single (first item, for backwards compat):
-    {identifier}  - e.g., SPICYMOCKS-1
+    {identifier}  - e.g., PROJ-1
     {id}          - UUID of work item
     {title}       - issue title
     {description} - issue description (HTML stripped)
