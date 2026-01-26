@@ -183,23 +183,25 @@ That's it! Claude can now interact with Plane, and the watcher will auto-trigger
 
 ---
 
-## Custom Claude Command
+## Custom Claude Commands
 
-Create `~/.claude/commands/fix-issue.md` to define how Claude handles issues:
+Example commands are included in `examples/commands/`. To install them:
 
-```markdown
-# Fix Plane Issue
-
-## Arguments
-- Issue identifiers (e.g., `PROJ-123` or multiple: `PROJ-123 PROJ-124`)
-
-## Workflow
-1. Fetch issue details from Plane
-2. Implement the fix
-3. Commit changes
-4. Add comment to Plane issue with commit link
-5. Update issue state to Done
+```bash
+cp examples/commands/*.md ~/.claude/commands/
 ```
+
+### Available Commands
+
+**fix-issue** - Handle Plane issues by implementing fixes, committing changes, and updating issue status.
+
+Usage:
+```
+/fix-issue PROJ-123
+/fix-issue PROJ-123 PROJ-124
+```
+
+You can customize these commands or create your own based on them.
 
 ---
 
