@@ -381,26 +381,32 @@ export class PlaneWatcher {
     this.running = true;
     this.log(`Starting poll loop (every ${this.config.watch.pollIntervalSeconds}s)...`);
 
-    const poll = async () => {
-      if (!this.running) return;
+    const pollLoop = async () => {
+      while (this.running) {
+        try {
+          this.lastPollTime = new Date();
+          const triggeredItems = await this.scanItems();
 
-      try {
-        this.lastPollTime = new Date();
-        const triggeredItems = await this.scanItems();
-
-        if (triggeredItems.length > 0) {
-          await this.processItems(triggeredItems);
+          if (triggeredItems.length > 0) {
+            // Process items and wait for completion before polling again
+            // This prevents parallel Claude instances from modifying overlapping code
+            await this.processItems(triggeredItems);
+          }
+        } catch (error) {
+          console.error("[Watcher] Poll error:", error);
         }
-      } catch (error) {
-        console.error("[Watcher] Poll error:", error);
+
+        // Wait before next poll (only if still running)
+        if (this.running) {
+          await new Promise((resolve) => {
+            this.pollInterval = setTimeout(resolve, this.config.watch.pollIntervalSeconds * 1000);
+          });
+        }
       }
     };
 
-    // Initial poll
-    await poll();
-
-    // Schedule recurring polls
-    this.pollInterval = setInterval(poll, this.config.watch.pollIntervalSeconds * 1000);
+    // Start the sequential polling loop (don't await - let it run in background)
+    pollLoop();
   }
 
   /** Stop the watcher polling loop */
@@ -412,7 +418,7 @@ export class PlaneWatcher {
 
     this.running = false;
     if (this.pollInterval) {
-      clearInterval(this.pollInterval);
+      clearTimeout(this.pollInterval);
       this.pollInterval = null;
     }
     this.log("Watcher stopped");
