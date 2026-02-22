@@ -590,10 +590,15 @@ export class PlaneClient {
     projectId: string,
     input: CreateCycleInput
   ): Promise<Cycle> {
+    const payload = {
+      project_id: projectId,
+      ...input,
+    };
+
     return this.request<Cycle>(
       "POST",
       `/api/v1/workspaces/${workspaceSlug}/projects/${projectId}/cycles/`,
-      input
+      payload
     );
   }
 
